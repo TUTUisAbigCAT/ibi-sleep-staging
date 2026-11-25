@@ -149,8 +149,7 @@ class WatchSleepNetConfig:
     NUM_HEADS = 16
     TCN_LAYERS = 3
     NUM_LAYERS = 4
-    NUM_CLASSES = 3                 # W / N / R
-    # NUM_CLASSES = 4                 # W / L / D / R
+    NUM_CLASSES = 4                 # W / L / D / R
 
     USE_TCN = True
     USE_ATTENTION = True
@@ -187,11 +186,11 @@ class InsightSleepNetConfig:
     PATIENCE = 20
     WEIGHT_DECAY = 1e-4
     LOSS_FN = nn.CrossEntropyLoss(ignore_index=-1)
-    NUM_CLASSES = 3
+    NUM_CLASSES = 4
 
     # --- Old Architecture Defaults (multi-block) ---
     INPUT_SIZE = 750    # Each segment length
-    OUTPUT_SIZE = 3     # e.g., number of classes
+    OUTPUT_SIZE = 4     # e.g., number of classes
     DROPOUT_RATE = 0.4
     ACTIVATION = nn.ReLU()
 
@@ -270,7 +269,7 @@ class SleepConvNetConfig:
     INPUT_SIZE = 750
     TARGET_SIZE = 256
     NUM_SEGMENTS = 1100
-    NUM_CLASSES = 3
+    NUM_CLASSES = 4
     DROPOUT_RATE = 0.2
     CONV_LAYERS_CONFIGS = [(1, 32, 3, 1), (32, 64, 3, 1), (64, 128, 3, 1)]
     DILATION_LAYERS_CONFIGS = None
@@ -314,7 +313,7 @@ class SleepPPGNetConfig:
     LOSS_FN = nn.CrossEntropyLoss(ignore_index=-1)
     
     # Model hyperparameters
-    NUM_CLASSES = 3
+    NUM_CLASSES = 4
     INPUT_CHANNELS = 1
     NUM_RES_BLOCKS = 4
     TCN_LAYERS = 2
@@ -333,6 +332,45 @@ class SleepPPGNetConfig:
             "tcn_layers": cls.TCN_LAYERS,
             "hidden_dim": cls.HIDDEN_DIM,
             "dropout_rate": cls.DROPOUT_RATE,
+            "BATCH_SIZE": cls.BATCH_SIZE,
+            "LEARNING_RATE": cls.LEARNING_RATE,
+            "WEIGHT_DECAY": cls.WEIGHT_DECAY,
+            "NUM_EPOCHS": cls.NUM_EPOCHS,
+            "PATIENCE": cls.PATIENCE,
+            "LOSS_FN": cls.LOSS_FN,
+        }
+
+
+class MambaSleepNetConfig:
+    """
+    MambaSleepNet: CNN per 30-s epoch + bidirectional Mamba over the night + classifier
+    (cross-entropy only, no contrastive learning). Needs mamba_ssm with CUDA.
+    """
+    # Training hyperparams
+    BATCH_SIZE = 32
+    LEARNING_RATE = 1e-3
+    NUM_EPOCHS = 200
+    PATIENCE = 20
+    WEIGHT_DECAY = 1e-4
+    LOSS_FN = nn.CrossEntropyLoss(ignore_index=-1)
+
+    # Model specific params
+    NUM_INPUT_CHANNELS = 1          # IBI is single channel
+    NUM_CLASSES = 4                 # W / L / D / R
+    HIDDEN_DIM = 256
+    NUM_MAMBA_LAYERS = 4            # depth of the Bi-Mamba stack
+    D_STATE = 64                    # Mamba state dimension
+
+    @classmethod
+    def to_dict(cls):
+        return {
+            # --- Model constructor fields ---
+            "num_features": cls.NUM_INPUT_CHANNELS,
+            "num_classes": cls.NUM_CLASSES,
+            "hidden_dim": cls.HIDDEN_DIM,
+            "num_mamba_layers": cls.NUM_MAMBA_LAYERS,
+            "d_state": cls.D_STATE,
+            # --- Training hyperparams ---
             "BATCH_SIZE": cls.BATCH_SIZE,
             "LEARNING_RATE": cls.LEARNING_RATE,
             "WEIGHT_DECAY": cls.WEIGHT_DECAY,

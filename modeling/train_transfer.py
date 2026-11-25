@@ -12,6 +12,7 @@ from config import (
     InsightSleepNetConfig,
     SleepConvNetConfig,
     SleepPPGNetConfig,
+    MambaSleepNetConfig,
     dataset_configurations,
 )
 from engine import train, train_and_evaluate, validate_step, setup_model_and_optimizer
@@ -41,7 +42,7 @@ parser.add_argument(
     "--model",
     type=str,
     default="watchsleepnet",  
-    choices=["watchsleepnet", "insightsleepnet", "sleepconvnet", "sleepppgnet"],
+    choices=["watchsleepnet", "insightsleepnet", "sleepconvnet", "sleepppgnet", "mambasleepnet"],
     help="Which model architecture to use."
 )
 parser.add_argument(
@@ -64,6 +65,8 @@ elif args.model == "sleepconvnet":
     model_config_class = SleepConvNetConfig
 elif args.model == "sleepppgnet":
     model_config_class = SleepPPGNetConfig
+elif args.model == "mambasleepnet":
+    model_config_class = MambaSleepNetConfig
 else:
     raise ValueError(f"Unknown model: {args.model}")
 

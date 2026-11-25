@@ -15,6 +15,7 @@ from config import (
     InsightSleepNetConfig,
     SleepConvNetConfig,
     SleepPPGNetConfig,
+    MambaSleepNetConfig,
     dataset_configurations,
 )
 from engine import train_cross_validate 
@@ -58,7 +59,7 @@ def parse_arguments():
         "--model",
         type=str,
         default="watchsleepnet",
-        choices=["watchsleepnet", "insightsleepnet", "sleepconvnet", "sleepppgnet"],
+        choices=["watchsleepnet", "insightsleepnet", "sleepconvnet", "sleepppgnet", "mambasleepnet"],
         help="Model architecture to use."
     )
     return parser.parse_args()
@@ -86,6 +87,8 @@ def main():
         model_config_class = SleepConvNetConfig
     elif args.model == "sleepppgnet":
         model_config_class = SleepPPGNetConfig
+    elif args.model == "mambasleepnet":
+        model_config_class = MambaSleepNetConfig
     else:
         raise ValueError("Model not recognized.")
     

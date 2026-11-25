@@ -169,21 +169,29 @@ def compute_metrics(
     valid_labels = [labels[i] for i in valid_indices]
     unique_labels = np.unique(valid_labels)
     valid_predictions = [predictions[i] for i in valid_indices]
+    # number of classes: from the model's probabilities when given (a set may lack a class), else the labels
+    n_classes = len(unique_labels)
+    if task == "sleep_staging" and pred_probs is not None and len(pred_probs) and np.ndim(pred_probs[0]) == 1:
+        n_classes = int(np.shape(pred_probs[0])[0])
+    elif task == "sleep_staging" and (valid_labels or valid_predictions):
+        n_classes = max(n_classes, int(max(list(valid_labels) + list(valid_predictions))) + 1)
 
     accuracy = accuracy_score(valid_labels, valid_predictions)
     f1 = f1_score(valid_labels, valid_predictions, average="weighted")
     kappa = cohen_kappa_score(valid_labels, valid_predictions)
 
     if print_conf_matrix:
-        cm = confusion_matrix(valid_labels, valid_predictions)
         if task == "sleep_staging":
-            if len(unique_labels) == 3:
+            cm = confusion_matrix(valid_labels, valid_predictions, labels=list(range(n_classes)))
+            if n_classes == 3:
                 class_names = ["Wake", "NREM", "REM"]
-            elif len(unique_labels) == 4:
+            elif n_classes == 4:
                 class_names = ["Wake", "Light", "Deep", "REM"]
             else:
-                print("ERROR in number of classes: {}; Not implemented".format(len(unique_labels)))
+                class_names = [str(k) for k in range(n_classes)]
+                print("ERROR in number of classes: {}; Not implemented".format(n_classes))
         else:
+            cm = confusion_matrix(valid_labels, valid_predictions)
             class_names = ["Wake", "Sleep"]
 
         title = "Confusion Matrix"
@@ -194,12 +202,13 @@ def compute_metrics(
 
     if testing:
         valid_probabilities = [pred_probs[i] for i in valid_indices]
-        if len(unique_labels) == 3:
-            rem_f1 = f1_score(valid_labels, valid_predictions, labels=[2], average="macro")
-        elif len(unique_labels) == 4:
-            rem_f1 = f1_score(valid_labels, valid_predictions, labels=[3], average="macro")
-        else:
-            print("ERROR in number of classes: {}; Not implemented".format(len(unique_labels)))
+        rem_f1 = float("nan")
+        if task == "sleep_staging" and n_classes in (3, 4):
+            # REM is the last class: 2 of W/NREM/REM, 3 of W/Light/Deep/REM
+            rem_f1 = f1_score(valid_labels, valid_predictions, labels=[n_classes - 1], average="macro",
+                              zero_division=0)
+        elif task == "sleep_staging":
+            print("ERROR in number of classes: {}; Not implemented".format(n_classes))
         if task == "sleep_wake":
             auroc = roc_auc_score(valid_labels, valid_probabilities, average="macro")
         elif task == "sleep_staging":
@@ -209,14 +218,16 @@ def compute_metrics(
                     valid_probabilities,
                     multi_class="ovr",
                     average="macro",
+                    labels=list(range(n_classes)),
                 )
             except ValueError as e:
-                print(f"Error: {e}")
-                num_classes_y_true = len(set(valid_labels))
-                num_columns_y_score = np.array(valid_probabilities).shape[1]
-                print(f"Number of classes in y_true: {num_classes_y_true}")
-                print(f"Number of columns in y_score: {num_columns_y_score}")
-                raise
+                # a set without some class: macro AUROC over the classes it has (one-vs-rest)
+                probabilities = np.asarray(valid_probabilities)
+                truth = np.asarray(valid_labels)
+                per_class = [roc_auc_score(truth == k, probabilities[:, k]) for k in range(n_classes)
+                             if 0 < (truth == k).sum() < truth.size]
+                auroc = float(np.mean(per_class)) if per_class else float("nan")
+                print(f"AUROC over the {len(per_class)} classes present ({e})")
         return accuracy, f1, kappa, rem_f1, auroc
 
     return accuracy, f1, kappa
@@ -717,6 +728,16 @@ def setup_model_and_optimizer(
             num_classes=model_params.get("num_classes", 3),
         ).to(device)
     
+    elif model_name == "mambasleepnet":
+        from models.mamba_sleepnet import MambaSleepNet    # needs mamba_ssm (CUDA)
+        model = MambaSleepNet(
+            num_features=model_params.get("num_features", 1),
+            num_classes=model_params.get("num_classes", 4),
+            hidden_dim=model_params.get("hidden_dim", 256),
+            num_mamba_layers=model_params.get("num_mamba_layers", model_params.get("num_layers", 4)),
+            d_state=model_params.get("d_state", 64),
+        ).to(device)
+
     elif model_name == "sleepppgnet":
         from models.sleepppgnet import SleepPPGNet
         model = SleepPPGNet(

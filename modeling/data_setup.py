@@ -83,7 +83,7 @@ class SSDataset(Dataset):
     def remap_labels(self, labels, task):
         # 0=Wake, 1=N1, 2=N2, 3=N3, 4=REM, 5=Movement => mapped to -1, plus -1 => -1 for out-of-range
         if task == "sleep_staging":
-            label_map = {0:0, 1:1, 2:1, 3:1, 4:2, 5:-1, -1:-1}
+            label_map = {0:0, 1:1, 2:1, 3:2, 4:3, 5:-1, -1:-1}   # 4 classes: W, Light (N1+N2), Deep, REM
         elif task == "sleep_wake":
             label_map = {0:0, 1:1, 2:1, 3:1, 4:1, 5:-1, -1:-1}
 
