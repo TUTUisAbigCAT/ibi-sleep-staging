@@ -7,7 +7,7 @@ import sys
 import types
 
 ROOT = Path(__file__).resolve().parents[1]
-for folder in (ROOT / "modeling", ROOT):
+for folder in (ROOT / "modeling", ROOT / "experiments", ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 

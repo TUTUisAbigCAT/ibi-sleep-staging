@@ -212,7 +212,8 @@ def compute_metrics(
         if task == "sleep_wake":
             auroc = roc_auc_score(valid_labels, valid_probabilities, average="macro")
         elif task == "sleep_staging":
-            try:
+            truth = np.asarray(valid_labels)
+            if all(0 < (truth == k).sum() < truth.size for k in range(n_classes)):
                 auroc = roc_auc_score(
                     valid_labels,
                     valid_probabilities,
@@ -220,14 +221,12 @@ def compute_metrics(
                     average="macro",
                     labels=list(range(n_classes)),
                 )
-            except ValueError as e:
-                # a set without some class: macro AUROC over the classes it has (one-vs-rest)
+            else:
+                # a set without some class: macro one-vs-rest AUROC over the classes it has
                 probabilities = np.asarray(valid_probabilities)
-                truth = np.asarray(valid_labels)
                 per_class = [roc_auc_score(truth == k, probabilities[:, k]) for k in range(n_classes)
                              if 0 < (truth == k).sum() < truth.size]
                 auroc = float(np.mean(per_class)) if per_class else float("nan")
-                print(f"AUROC over the {len(per_class)} classes present ({e})")
         return accuracy, f1, kappa, rem_f1, auroc
 
     return accuracy, f1, kappa

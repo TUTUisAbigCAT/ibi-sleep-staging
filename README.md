@@ -155,3 +155,26 @@ You can perform hyperparameter tuning for WatchSleepNet, InsightSleepNet, and Sl
 ```
 python watchsleepnet_hpt.py
 ```
+## DREAMT IBI 分期替换实验（本仓库新增）
+
+本仓库在 WatchSleepNet_public_1 代码基础上增加了：
+
+- **MambaSleepNet**（`modeling/models/mamba_sleepnet.py`）：CNN 提取每个 30 秒窗口的特征 + 双向 Mamba 建模整晚序列 + 分类层，没有对比学习部分；需要 `mamba_ssm`（CUDA）。`--model mambasleepnet`，设置见 `config.MambaSleepNetConfig`。
+- **4 类**：W 0、Light（N1+N2）1、Deep 2、REM 3（所有模型）。`compute_metrics` 按模型输出的类别数计算，某个集合缺少某一类时 REM F1 和 AUROC 仍然正确。
+- `experiments/`：替换实验的脚本（只读输入，输出写到新目录）。
+
+```bash
+# Trillium 上，仓库根目录；./venv 可以直接链接已有环境：ln -s /path/to/WatchSleepNet_public_1/venv venv
+D=/home/yxtao/links/scratch/ibi-sleep-staging
+REAL=/scratch/yxtao/dataset-generation-ppg50/nights/ppg50_1393726_e146/ibi_elgendi_local_fix/night_npz_real
+python experiments/summarize_sync.py                                   # E4 与 PSG 是否同步（读 PPG 提取报告）
+python experiments/make_folds.py --nights $REAL --output $D/folds.json  # 按人 5 折，平衡 AHI 和深睡
+python experiments/make_replacement_sets.py --folds $D/folds.json --real $REAL --generated GEN_NIGHTS \
+  --output-dir $D/sets --arms real gen:Deep gen:REM gen:Deep,REM gen:random0.2 shuffled:Deep shuffled:REM shuffled:random0.2
+sbatch experiments/submit_run_folds.sh mambasleepnet $D/folds.json $D/sets $D/results real 0   # 每个模型、arm、seed 一个 job
+```
+
+- `GEN_NIGHTS`：每折生成器生成的整夜 IBI（WatchSleepNet NPZ 格式），用 `{fold}` 代表折号；只有基线 `real` 时可以随便填。
+- 训练只用每折的 `train` 参与者，`val` 用于 early stopping，`test` 全部是真实数据；结果在 `$D/results/<model>/summary.csv`（各组与 `real` 的差）。
+- `python modeling/train_cv.py --model mambasleepnet --train_dataset dreamt_pibi` 等原有入口也可以选 MambaSleepNet。
+- 测试（CPU，用一个替身代替 CUDA 的 Mamba 内核）：`python -m pytest -q tests`
