@@ -164,7 +164,9 @@ python watchsleepnet_hpt.py
 - `experiments/`：替换实验的脚本（只读输入，输出写到新目录）。
 
 ```bash
-# Trillium 上，仓库根目录；./venv 可以直接链接已有环境：ln -s /path/to/WatchSleepNet_public_1/venv venv
+# Trillium 上，仓库根目录（/home/yxtao/links/projects/def-plago/yxtao/ibi-sleep-staging）。环境与 WatchSleepNet_public 相同：
+module load StdEnv/2023 gcc/12.3 opencv/4.9.0 python/3.11
+source /home/yxtao/links/projects/def-plago/yxtao/WatchSleepNet_public/venv/bin/activate
 D=/home/yxtao/links/scratch/ibi-sleep-staging
 REAL=/scratch/yxtao/dataset-generation-ppg50/nights/ppg50_1393726_e146/ibi_elgendi_local_fix/night_npz_real
 python experiments/summarize_sync.py                                   # E4 与 PSG 是否同步（读 PPG 提取报告）
@@ -177,4 +179,5 @@ sbatch experiments/submit_run_folds.sh mambasleepnet $D/folds.json $D/sets $D/re
 - `GEN_NIGHTS`：每折生成器生成的整夜 IBI（WatchSleepNet NPZ 格式），用 `{fold}` 代表折号；只有基线 `real` 时可以随便填。
 - 训练只用每折的 `train` 参与者，`val` 用于 early stopping，`test` 全部是真实数据；结果在 `$D/results/<model>/summary.csv`（各组与 `real` 的差）。
 - `python modeling/train_cv.py --model mambasleepnet --train_dataset dreamt_pibi` 等原有入口也可以选 MambaSleepNet。
+- `experiments/submit_run_folds.sh` 在 job 里加载同样的 module 和 WatchSleepNet_public 的 venv（路径在脚本的 `VENV`）。
 - 测试（CPU，用一个替身代替 CUDA 的 Mamba 内核）：`python -m pytest -q tests`
