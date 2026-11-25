@@ -1,0 +1,24 @@
+__pycache__
+*.log
+*.pt
+*.pth
+*.onnx
+*config_backup.py
+*.csv
+*.png
+*.ipynb
+*.ipynb_checkpoints
+*notebooks*
+*_new.py
+*optuna_studies*
+*.tyx
+# run outputs and data (code only in this repository)
+checkpoints/
+slurm-*.out
+*.db
+*.db-journal
+*.npz
+*.npy
+venv*/
+.venv/
+*.swp
