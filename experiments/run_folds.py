@@ -1,11 +1,14 @@
 r"""Train and test a sleep-staging model on our fixed participant folds: DREAMT only, from scratch, per arm and seed.
 
   python experiments/run_folds.py --model mambasleepnet --folds FOLDS/folds.json --sets SETS --output-dir RESULTS \
-      [--arms real gen_Deep ...] [--seeds 0 1 2] [--epochs N] [--patience N]
+      [--arms real gen_Deep ...] [--seeds 0 1 2] [--epochs N] [--patience N] [--class-weights sqrt]
 
 --model is one of watchsleepnet, insightsleepnet, sleepconvnet, sleepppgnet, mambasleepnet; its settings come
 from modeling/config.py (<Model>Config). MambaSleepNet is the CNN + bidirectional Mamba with only a classifier
 (no contrastive learning) and needs mamba_ssm with CUDA. Every model trains with cross-entropy.
+--class-weights sqrt|inverse weights that cross-entropy per class, from each fold's training labels: weight of
+class k proportional to f_k^-1/2 (sqrt) or f_k^-1 (inverse), f_k its share of the fold's training epochs,
+scaled so that the mean weight over the training epochs is 1 (the validation loss uses the same weights).
 
 SETS is the output of experiments/make_replacement_sets.py: SETS/<arm>/fold<k>/<SID>.npz, where the training
 participants carry the arm's replaced windows and validation and test participants are real. For every arm
@@ -15,9 +18,10 @@ of data_setup.SSDataset: W, Light, Deep, REM. Then every fold's best checkpoint 
 participant, and we score:
   per fold and pooled over the five test folds: accuracy, Cohen's kappa, macro F1, F1 per class, confusion
   matrix; per test participant: accuracy and kappa.
-Output: RESULTS/<model>/<arm>/seed<s>/ (checkpoints, results.json, per_fold.csv, per_participant.csv) and,
-over all finished runs of the model, RESULTS/<model>/summary.csv and summary.json: mean and SD over seeds of
-the pooled metrics and the difference to the "real" arm per seed (same seeds, same folds). A finished run is
+Output: RESULTS/<run>/<arm>/seed<s>/ (checkpoints, results.json, per_fold.csv, per_participant.csv) and,
+over all finished runs, RESULTS/<run>/summary.csv and summary.json: mean and SD over seeds of the pooled
+metrics and the difference to the "real" arm per seed (same seeds, same folds, same weighting). <run> is the
+model, or <model>_cw-<scheme> with class weights (so weighted and unweighted results never mix). A finished run is
 not repeated. --check loads one batch of every loader of the first arm and runs the model on it (no training).
 """
 from __future__ import annotations
@@ -53,6 +57,8 @@ def parse_args(argv=None):
     parser.add_argument("--patience", type=int, default=None, help="default: the config's PATIENCE")
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--class-weights", choices=["none", "sqrt", "inverse"], default="none",
+                        help="per-class cross-entropy weights from each fold's training labels (default none)")
     parser.add_argument("--model-params", default=None, help="JSON overriding model constructor fields (tests)")
     parser.add_argument("--device", default=None)
     parser.add_argument("--check", action="store_true")
@@ -79,6 +85,35 @@ def class_names(data_setup):
         names.setdefault(int(label), []).append(code)
     readable = {("W",): "W", ("N1", "N2"): "Light", ("N3",): "Deep", ("REM",): "REM", ("N1", "N2", "N3"): "NREM"}
     return [readable.get(tuple(names.get(k, [])), "+".join(names.get(k, [str(k)]))) for k in range(count)]
+
+
+def run_name(args):
+    return args.model if args.class_weights == "none" else f"{args.model}_cw-{args.class_weights}"
+
+
+def class_weights(labels, n_classes, scheme):
+    """(weights, counts): weight_k ~ share_k^-1/2 (sqrt) or share_k^-1 (inverse), mean 1 over the labels."""
+    labels = np.asarray(labels, dtype=int)
+    counts = np.bincount(labels[labels >= 0], minlength=n_classes)[:n_classes].astype(float)
+    share = counts / counts.sum()
+    power = dict(sqrt=0.5, inverse=1.0)[scheme]
+    raw = np.where(counts > 0, np.power(np.where(share > 0, share, 1.0), -power), 0.0)
+    return raw / float(np.sum(share * raw)), counts.astype(int)
+
+
+def fold_losses(loaders, n_classes, scheme, device):
+    """One weighted cross-entropy per fold, from the labels of that fold's training nights."""
+    import torch
+
+    losses, info = [], []
+    for train_loader, _, _ in loaders:
+        dataset = train_loader.dataset
+        labels = np.concatenate([np.asarray(dataset[i][1]).reshape(-1) for i in range(len(dataset))])
+        weights, counts = class_weights(labels, n_classes, scheme)
+        losses.append(torch.nn.CrossEntropyLoss(weight=torch.tensor(weights, dtype=torch.float32, device=device),
+                                                ignore_index=-1))
+        info.append(dict(weights=[round(float(w), 4) for w in weights], training_epochs=counts.tolist()))
+    return losses, info
 
 
 def set_seed(seed):
@@ -119,7 +154,7 @@ def run_one(arm, seed, folds, args, modules, names, model_params):
     import torch
 
     config, data_setup, engine = modules
-    output = args.output_dir / args.model / arm / f"seed{seed}"
+    output = args.output_dir / run_name(args) / arm / f"seed{seed}"
     if (output / "results.json").is_file():
         print(f"{arm} seed {seed}: finished before, kept")
         return json.loads((output / "results.json").read_text(encoding="utf-8"))
@@ -134,6 +169,12 @@ def run_one(arm, seed, folds, args, modules, names, model_params):
     lr = model_params.get("LEARNING_RATE", 1e-3)
     wd = model_params.get("WEIGHT_DECAY", 1e-4)
     loss_fn = model_params.get("LOSS_FN") or torch.nn.CrossEntropyLoss(ignore_index=-1)
+    weighting = None
+    if args.class_weights != "none":
+        loss_fn, weighting = fold_losses(loaders, len(names), args.class_weights, device)
+        for f, w in zip(folds, weighting):
+            print(f"{arm} seed {seed} fold {f['fold']}: class weights "
+                  + ", ".join(f"{n} {v:.2f}" for n, v in zip(names, w["weights"])))
     checkpoint = str(output / f"{args.model}.pt")
     quiet = contextlib.redirect_stdout(io.StringIO()) if args.quiet else contextlib.nullcontext()
     with quiet:
@@ -165,6 +206,7 @@ def run_one(arm, seed, folds, args, modules, names, model_params):
     result = dict(model=args.model, arm=arm, seed=seed, classes=names,
                   pooled=scores(pooled_true, pooled_pred, len(names)),
                   per_fold=per_fold, settings=dict(batch_size=batch, learning_rate=lr, weight_decay=wd,
+                  class_weights=dict(scheme=args.class_weights, folds=weighting),
                   epochs=args.epochs or model_params.get("NUM_EPOCHS"), patience=args.patience or model_params.get("PATIENCE"),
                   model={k: v for k, v in model_params.items() if isinstance(v, (int, float, str, bool))}))
     with (output / "per_fold.csv").open("w", newline="", encoding="utf-8") as stream:
@@ -179,7 +221,7 @@ def run_one(arm, seed, folds, args, modules, names, model_params):
         writer.writerows(per_participant)
     (output / "results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     p = result["pooled"]
-    print(f"{args.model} {arm} seed {seed}: accuracy {p['accuracy']:.3f}, kappa {p['kappa']:.3f}, macro F1 {p['macro_f1']:.3f}, "
+    print(f"{run_name(args)} {arm} seed {seed}: accuracy {p['accuracy']:.3f}, kappa {p['kappa']:.3f}, macro F1 {p['macro_f1']:.3f}, "
           + ", ".join(f"F1 {n} {v:.3f}" for n, v in zip(names, p["f1"])))
     return result
 
@@ -253,8 +295,8 @@ def main(argv=None):
     for arm in arms:
         for seed in args.seeds:
             run_one(arm, seed, folds, args, modules, names, model_params)
-    summary = summarize(args.output_dir / args.model, names)
-    print(f"summary: {args.output_dir / args.model / 'summary.csv'}")
+    summary = summarize(args.output_dir / run_name(args), names)
+    print(f"summary: {args.output_dir / run_name(args) / 'summary.csv'}")
     return summary
 
 

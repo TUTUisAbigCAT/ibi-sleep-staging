@@ -1578,8 +1578,8 @@ def train_cross_validate(
             The learning rate for the optimizer.
         weight_decay (float):
             L2 regularization coefficient.
-        loss_fn (callable):
-            The loss function (e.g. CrossEntropyLoss).
+        loss_fn (callable or list of callables):
+            The loss function (e.g. CrossEntropyLoss), or one per fold in the order of dataloader_folds.
         num_epochs (int):
             Max number of epochs per fold.
         patience (int):
@@ -1636,6 +1636,8 @@ def train_cross_validate(
     # Loop over folds
     for fold_idx, (train_dl, val_dl, test_dl) in enumerate(dataloader_folds, start=1):
         print(f"\n=== Fold {fold_idx}/{num_folds} ===")
+        # one loss per fold (e.g. class weights from that fold's training labels), or the same for all
+        fold_loss = loss_fn[fold_idx - 1] if isinstance(loss_fn, (list, tuple)) else loss_fn
 
         # Construct fold-specific checkpoint path if provided
         fold_checkpoint = None
@@ -1658,7 +1660,7 @@ def train_cross_validate(
             model=model,
             train_dataloader=train_dl,
             val_dataloader=val_dl,
-            loss_fn=loss_fn,
+            loss_fn=fold_loss,
             optimizer=optimizer,
             device=device,
             num_epochs=num_epochs,
@@ -1677,10 +1679,10 @@ def train_cross_validate(
 
         # Evaluate on train/val with best checkpoint
         (train_loss, train_acc, train_f1, train_kappa, train_rem_f1, train_auroc) = validate_step(
-            model, train_dl, loss_fn, device
+            model, train_dl, fold_loss, device
         )
         (val_loss, val_acc, val_f1, val_kappa, val_rem_f1, val_auroc) = validate_step(
-            model, val_dl, loss_fn, device
+            model, val_dl, fold_loss, device
         )
 
         # Store best training/validation metrics for this fold
@@ -1700,7 +1702,7 @@ def train_cross_validate(
 
         # ---- 4) Test the best model
         (test_loss, test_acc, test_f1, test_kappa, test_rem_f1, test_auroc) = validate_step(
-            model, test_dl, loss_fn, device
+            model, test_dl, fold_loss, device
         )
         results["test_loss"].append(test_loss)
         results["test_acc"].append(test_acc)

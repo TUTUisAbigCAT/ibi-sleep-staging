@@ -178,6 +178,7 @@ sbatch experiments/submit_run_folds.sh mambasleepnet $D/folds.json $D/sets $D/re
 
 - `GEN_NIGHTS`：每折生成器生成的整夜 IBI（WatchSleepNet NPZ 格式），用 `{fold}` 代表折号；只有基线 `real` 时可以随便填。
 - 训练只用每折的 `train` 参与者，`val` 用于 early stopping，`test` 全部是真实数据；结果在 `$D/results/<model>/summary.csv`（各组与 `real` 的差）。
+- 类别加权：`submit_run_folds.sh ... real 0 --class-weights sqrt`（或 `inverse`）。每折按自己训练集的标签算交叉熵的类别权重（∝ 占比^-1/2 或 ^-1，训练 epoch 上的平均权重为 1，验证 loss 用同样的权重），结果写到 `$D/results/<model>_cw-sqrt/`，和不加权的结果分开；每折的权重和各类 epoch 数记在 `results.json` 的 `settings.class_weights`。
 - `python modeling/train_cv.py --model mambasleepnet --train_dataset dreamt_pibi` 等原有入口也可以选 MambaSleepNet。
 - `experiments/submit_run_folds.sh` 在 job 里加载同样的 module 和 WatchSleepNet_public 的 venv（路径在脚本的 `VENV`）。
 - 测试（CPU，用一个替身代替 CUDA 的 Mamba 内核）：`python -m pytest -q tests`

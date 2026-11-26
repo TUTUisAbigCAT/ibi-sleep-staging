@@ -14,6 +14,7 @@
 #     for S in 0 1 2; do sbatch experiments/submit_run_folds.sh mambasleepnet $D/folds.json $D/sets $D/results $A $S; done
 #   done
 # A finished model/arm/seed is skipped; RESULTS/<model>/summary.csv is rewritten over what is finished.
+# Class-weighted cross-entropy: add --class-weights sqrt (results in RESULTS/<model>_cw-sqrt/, kept apart).
 # Arguments, not environment variables: Trillium starts jobs with --export=NONE.
 
 set -euo pipefail
